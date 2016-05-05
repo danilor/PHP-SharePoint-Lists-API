@@ -1129,4 +1129,63 @@ class SharePointAPI {
 	public function getVersions ($list, $id, $field = null) {
 	    return $this->getFieldVersions($list, $id, $field);
 	}
+	
+	
+	/*
+		ADDED BY DANILO
+		Taken from: https://github.com/alexdemers/PHP-SharePoint-Lists-API and with some modifications of my own.
+		This will help future users to upload files to Document Lists on SharePoint.
+		
+		its important to know that the WSDL file used for this function is completely different from the usual lists WSDL file. It has to be downloaded from:
+		http://url/<site_structure>/<List name>/Copy.asmx?WSDL
+		
+		If it doesnt work (the download of the WSDL file) we have to search for the right WSDL file somewhere else.
+		
+		Quick example (In spanish):
+		
+			$u = env('SP_USERNAME','');
+	            	$p = env('SP_PASSWORD','');
+	            	$v='NTLM';
+	            	$w = $this -> obtener_ruta_wsdl_final_copy(); // Tenemos que obtener el WSDL que sirve para copiar archivos.
+	            	$aux_sp = new SharePointAPI( $u , $p, $w  , $v);
+	            	$objetivo = env('SP_SERVER') . env('SP_SITE') . env('SP_LIST','Documentos') . '/' . $carpeta . '/' . $this -> input["nombre"] . '.' . $this->input["documento"] -> getClientOriginalExtension(); // Esta variable indica en donde la imágen tiene que ir a dar.
+	            	$r = $aux_sp -> uploadFromLocal( $url , [$objetivo] , [[]]  );
+		
+	*/
+	public function uploadFromLocal ($source_url, $destination_urls, array $data = array()) {
+		$destination_urls = (array) $destination_urls;
+		// Wrap in CAML
+		$CAML = '
+			<CopyIntoItems xmlns="http://schemas.microsoft.com/sharepoint/soap/">
+				<SourceUrl>http://null</SourceUrl>
+				<DestinationUrls>';
+		foreach ($destination_urls as $destination_url) {
+			$CAML .= '<string>'.htmlspecialchars($destination_url).'</string>';
+		}
+		$CAML .= '</DestinationUrls><Fields><FieldInformation Type="File" />';
+		// Add required attributes
+		foreach ($data as $attributes) {
+			// Add entry
+			$properties = [];
+			foreach ($attributes as $key => $value) {
+				$properties[] = sprintf('%s="%s"', $key, htmlentities($value));
+			}
+			$CAML .= '<FieldInformation '.implode(' ', $properties).' />';
+		}
+		$CAML .= '</Fields>';
+		$CAML .= '<Stream>'.base64_encode(file_get_contents($source_url)).'</Stream></CopyIntoItems>';
+		$xmlvar = new \SoapVar($CAML, XSD_ANYXML);
+		// Attempt to run operation
+		try {
+			$response = $this->soapClient->CopyIntoItems($xmlvar);
+			if ($response->Results->CopyResult->ErrorCode != 'Success') {
+				throw new \SoapFault($response->Results->CopyResult->ErrorCode, $response->Results->CopyResult->ErrorMessage);
+			}
+		} catch (\SoapFault $fault) {
+			$this->onError($fault);
+		}
+		// Return true on success
+		return true;
+	}
+	
 }
